@@ -13,6 +13,7 @@ Each subset uses **top 10 test samples**. The 10 contexts are aggregated into on
 - Chunk overlap: `50`
 - Retrieval top-k: `10`
 - Metrics: `F1-Score`, `ROUGE-L`
+- GraphRAG retrieval mode: `auto` (chooses `local`/`global` per question heuristic)
 
 ## Recommended Project Structure
 
@@ -51,5 +52,7 @@ pip install -r requirements.txt
 - `outputs/graphrag_predictions.jsonl`
 - `outputs/performance_comparison.csv`
 - `outputs/final_report.md`
+
+Token-consumption fields are recorded in prediction JSONL files (embedding/index and LLM usage) and rolled up in the final report table.
 
 See `docs/EXPERIMENT_GUIDE.md` for full step-by-step instructions.

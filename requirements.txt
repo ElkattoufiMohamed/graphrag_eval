@@ -8,3 +8,4 @@ nano-graphrag
 dashscope
 google-genai
 openai
+tiktoken

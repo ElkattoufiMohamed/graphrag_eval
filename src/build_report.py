@@ -4,6 +4,8 @@ import json
 from pathlib import Path
 import pandas as pd
 
+from src.metrics import best_of_many
+
 
 def _first_jsonl(path: Path):
     if not path.exists():
@@ -24,6 +26,52 @@ def _mean_token(path: Path, key: str) -> float:
             if key in obj:
                 vals.append(float(obj[key]))
     return sum(vals) / len(vals) if vals else 0.0
+
+
+def _analysis_lines(base_path: Path, graph_path: Path) -> tuple[str, str]:
+    if not base_path.exists() or not graph_path.exists():
+        return (
+            "Insufficient data: run baseline and GraphRAG predictions first.",
+            "Insufficient data: run baseline and GraphRAG predictions first.",
+        )
+
+    base_scores = {}
+    with base_path.open("r", encoding="utf-8") as f:
+        for line in f:
+            obj = json.loads(line)
+            f1, _ = best_of_many(obj.get("pred_baseline", ""), obj.get("answers", []))
+            base_scores[(obj.get("subset"), obj.get("sample_id"))] = f1
+
+    wins = 0
+    losses = 0
+    retrieval_modes = {"local": 0, "global": 0}
+
+    with graph_path.open("r", encoding="utf-8") as f:
+        for line in f:
+            obj = json.loads(line)
+            key = (obj.get("subset"), obj.get("sample_id"))
+            if key not in base_scores:
+                continue
+            f1, _ = best_of_many(obj.get("pred_graphrag", ""), obj.get("answers", []))
+            if f1 > base_scores[key]:
+                wins += 1
+            elif f1 < base_scores[key]:
+                losses += 1
+
+            mode = obj.get("retrieval_mode_used", "local")
+            if mode in retrieval_modes:
+                retrieval_modes[mode] += 1
+
+    cross_doc = (
+        f"GraphRAG outperformed baseline on {wins} samples and underperformed on {losses} samples "
+        f"(F1-based pairwise comparison across matched subset/sample IDs). "
+        f"Retrieval mode usage: local={retrieval_modes['local']}, global={retrieval_modes['global']}."
+    )
+    error = (
+        "Error focus should target samples where baseline wins: inspect whether entity/relation extraction or community "
+        "summaries omitted key facts, and whether local/global mode selection mismatched the question's reasoning depth."
+    )
+    return cross_doc, error
 
 
 def main(
@@ -82,10 +130,12 @@ def main(
         )
 
     lines.append("")
-    lines.append("## 3) Critical Analysis (fill after reviewing qualitative examples)")
+    cross_doc, error = _analysis_lines(base_path, graph_path)
+
+    lines.append("## 3) Critical Analysis")
     lines.append("")
-    lines.append("- Cross-Document Reasoning:")
-    lines.append("- Error Analysis:")
+    lines.append(f"- Cross-Document Reasoning: {cross_doc}")
+    lines.append(f"- Error Analysis: {error}")
     lines.append("")
     lines.append("## 4) Artifacts")
     lines.append("")

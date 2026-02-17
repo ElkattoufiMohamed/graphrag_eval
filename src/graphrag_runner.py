@@ -69,11 +69,22 @@ class LocalBGEEmbedder:
 # -------------------------
 _LLM_SEM = asyncio.Semaphore(2)  # start small; raise if stable
 _SYNC_LLM = None
+_GRAPH_LLM_USAGE = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
 
 
 def set_llm_for_graphrag(llm) -> None:
     global _SYNC_LLM
     _SYNC_LLM = llm
+
+
+def reset_graphrag_llm_usage() -> None:
+    _GRAPH_LLM_USAGE["prompt_tokens"] = 0
+    _GRAPH_LLM_USAGE["completion_tokens"] = 0
+    _GRAPH_LLM_USAGE["total_tokens"] = 0
+
+
+def get_graphrag_llm_usage() -> dict:
+    return dict(_GRAPH_LLM_USAGE)
 
 async def llm_complete(prompt: str, system_prompt=None, history_messages=None, **kwargs) -> str:
     if _SYNC_LLM is None:
@@ -89,6 +100,10 @@ async def llm_complete(prompt: str, system_prompt=None, history_messages=None, *
                     return _SYNC_LLM.generate(full_prompt, temperature=temperature)
 
                 out = await asyncio.to_thread(_call)
+                usage = getattr(_SYNC_LLM, "last_usage", {})
+                _GRAPH_LLM_USAGE["prompt_tokens"] += int(usage.get("prompt_tokens", 0) or 0)
+                _GRAPH_LLM_USAGE["completion_tokens"] += int(usage.get("completion_tokens", 0) or 0)
+                _GRAPH_LLM_USAGE["total_tokens"] += int(usage.get("total_tokens", 0) or 0)
                 await asyncio.sleep(0.25 + random.uniform(0.0, 0.25))
                 return out
             except Exception as e:
@@ -103,15 +118,33 @@ async def llm_complete(prompt: str, system_prompt=None, history_messages=None, *
 def build_graphrag(
     working_dir: str,
     embed_device: str = "cpu",
+    embedding_backend: str = "st",
+    embedding_model: str = "BAAI/bge-m3",
 ) -> GraphRAG:
-    embedder = LocalBGEEmbedder(device=embed_device, cache_dir=working_dir)
+    if embedding_backend == "openai":
+        from openai import OpenAI
 
-    @wrap_embedding_func_with_attrs(
-        embedding_dim=embedder.dim,
-        max_token_size=embedder.max_len,
-    )
-    async def local_embedding(texts: List[str]) -> np.ndarray:
-        return await asyncio.to_thread(embedder.encode, texts)
+        client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+
+        @wrap_embedding_func_with_attrs(
+            embedding_dim=1536,
+            max_token_size=8192,
+        )
+        async def local_embedding(texts: List[str]) -> np.ndarray:
+            def _embed() -> np.ndarray:
+                resp = client.embeddings.create(model=embedding_model, input=texts)
+                return np.asarray([d.embedding for d in resp.data], dtype=np.float32)
+
+            return await asyncio.to_thread(_embed)
+    else:
+        embedder = LocalBGEEmbedder(model_name=embedding_model, device=embed_device, cache_dir=working_dir)
+
+        @wrap_embedding_func_with_attrs(
+            embedding_dim=embedder.dim,
+            max_token_size=embedder.max_len,
+        )
+        async def local_embedding(texts: List[str]) -> np.ndarray:
+            return await asyncio.to_thread(embedder.encode, texts)
 
     rag = GraphRAG(
         working_dir=working_dir,

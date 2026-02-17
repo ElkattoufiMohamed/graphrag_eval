@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import List, Dict, Any, Tuple
+from typing import List, Dict, Any
 import re
 
 from src.data_loader import AggregatedCorpus
@@ -24,38 +24,75 @@ def _simple_tokenize(text: str) -> List[str]:
     return text.split(" ") if text else []
 
 
-def _detokenize(tokens: List[str]) -> str:
-    return " ".join(tokens)
+def _merge_with_overlap(chunks: List[str], overlap_chars: int) -> List[str]:
+    if overlap_chars <= 0 or len(chunks) <= 1:
+        return [c.strip() for c in chunks if c.strip()]
+
+    out: List[str] = []
+    for i, chunk in enumerate(chunks):
+        current = chunk.strip()
+        if not current:
+            continue
+        if i == 0:
+            out.append(current)
+            continue
+        prev_tail = out[-1][-overlap_chars:]
+        out.append((prev_tail + current).strip())
+    return out
 
 
-def chunk_document_tokens(
+def chunk_document_recursive_chars(
     text: str,
     chunk_size: int = 512,
     overlap: int = 50,
 ) -> List[str]:
     """
-    Chunk a document by 'token' count (here: whitespace tokens).
-    Produces overlapping chunks:
-      start = 0 -> chunk_size
-      start = chunk_size - overlap -> next window
+    Recursive character splitting (guide-aligned baseline splitter).
+    We approximate token constraints by converting token budget to character budget
+    (about 4 chars/token), then apply recursive separators.
     """
     assert chunk_size > 0
     assert 0 <= overlap < chunk_size
 
-    tokens = _simple_tokenize(text)
-    chunks: List[str] = []
+    max_chars = chunk_size * 4
+    overlap_chars = overlap * 4
 
-    start = 0
-    step = chunk_size - overlap
+    separators = ["\n\n", "\n", ". ", " "]
 
-    while start < len(tokens):
-        window = tokens[start : start + chunk_size]
-        if not window:
-            break
-        chunks.append(_detokenize(window))
-        start += step
+    def _split_recursive(s: str, sep_idx: int = 0) -> List[str]:
+        s = s.strip()
+        if not s:
+            return []
+        if len(s) <= max_chars:
+            return [s]
+        if sep_idx >= len(separators):
+            # hard fallback
+            parts = [s[i : i + max_chars] for i in range(0, len(s), max_chars)]
+            return [p.strip() for p in parts if p.strip()]
 
-    return chunks
+        sep = separators[sep_idx]
+        raw = s.split(sep)
+        if len(raw) == 1:
+            return _split_recursive(s, sep_idx + 1)
+
+        built: List[str] = []
+        cur = ""
+        for piece in raw:
+            piece = piece.strip()
+            if not piece:
+                continue
+            candidate = f"{cur}{sep if cur else ''}{piece}".strip()
+            if len(candidate) <= max_chars:
+                cur = candidate
+            else:
+                if cur:
+                    built.extend(_split_recursive(cur, sep_idx + 1))
+                cur = piece
+        if cur:
+            built.extend(_split_recursive(cur, sep_idx + 1))
+        return built
+
+    return _merge_with_overlap(_split_recursive(text), overlap_chars=overlap_chars)
 
 
 def build_unified_chunk_index(
@@ -71,7 +108,7 @@ def build_unified_chunk_index(
     out: List[Chunk] = []
 
     for doc_idx, (doc_id, doc_text) in enumerate(zip(agg.doc_ids, agg.documents)):
-        doc_chunks = chunk_document_tokens(doc_text, chunk_size=chunk_size, overlap=overlap)
+        doc_chunks = chunk_document_recursive_chars(doc_text, chunk_size=chunk_size, overlap=overlap)
 
         for j, ch in enumerate(doc_chunks):
             out.append(

@@ -8,10 +8,7 @@ from typing import Dict, Any
 from src.data_loader import load_all_subsets_and_aggregate, SUBSETS
 from src.baseline_rag import make_embedder, build_baseline_index, retrieve_topk, build_prompt_from_chunks
 from src.llm_provider import build_unified_llm_from_env
-
-
-def _approx_tokens(text: str) -> int:
-    return len(text.split())
+from src.token_utils import count_many_text_tokens
 
 
 def ensure_dir(path: str) -> None:
@@ -66,17 +63,31 @@ def main():
                 chunk_size=CHUNK_SIZE,
                 overlap=CHUNK_OVERLAP,
             )
-            index_token_budget = sum(_approx_tokens(ch.text) for ch in index.chunks)
+            if embedding_backend == "openai":
+                index_token_budget = int(getattr(embedder, "usage_tokens", 0))
+            else:
+                index_token_budget = count_many_text_tokens([ch.text for ch in index.chunks])
+
+            llm_prompt_tokens = 0
+            llm_completion_tokens = 0
+            llm_total_tokens = 0
 
             for i, (qid, question, answers) in enumerate(zip(agg.doc_ids, agg.questions, agg.answers_list)):
                 retrieved = retrieve_topk(index, embedder=embedder, query=question, top_k=TOP_K)
                 prompt = build_prompt_from_chunks(question, retrieved)
 
                 pred = llm.generate(prompt, temperature=0.0)
+                usage = llm.last_usage
+                llm_prompt_tokens += int(usage.get("prompt_tokens", 0) or 0)
+                llm_completion_tokens += int(usage.get("completion_tokens", 0) or 0)
+                llm_total_tokens += int(usage.get("total_tokens", 0) or 0)
 
                 record = {
                     "run_meta": run_meta,
                     "vector_index_tokens_est": index_token_budget,
+                    "baseline_generation_prompt_tokens": llm_prompt_tokens,
+                    "baseline_generation_completion_tokens": llm_completion_tokens,
+                    "baseline_generation_total_tokens": llm_total_tokens,
                     "subset": subset,
                     "sample_id": qid,
                     "sample_idx": i,

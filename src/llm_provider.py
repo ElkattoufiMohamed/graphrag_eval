@@ -20,9 +20,16 @@ class UnifiedLLM:
 
         self.provider = provider_key
         self.model = model
+        self.last_usage = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
 
     def generate(self, prompt: str, temperature: float = 0.0) -> str:
-        return self.impl.generate(prompt, temperature=temperature)
+        out = self.impl.generate(prompt, temperature=temperature)
+        self.last_usage = getattr(
+            self.impl,
+            "last_usage",
+            {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
+        )
+        return out
 
 
 def build_unified_llm_from_env() -> UnifiedLLM:
