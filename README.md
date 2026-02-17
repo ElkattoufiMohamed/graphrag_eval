@@ -1,39 +1,55 @@
 # GraphRAG Evaluation Pipeline (Internship Guide Aligned)
 
-This repository evaluates **GraphRAG (nano-graphrag)** vs **Standard Vector RAG** on LongBench subsets:
+This project evaluates **GraphRAG (nano-graphrag)** vs **Standard Vector RAG** on LongBench subsets:
 - `musique`
-- `2wikimqa` (WikiMQA in LongBench config naming)
+- `2wikimqa` (WikiMQA config name in LongBench)
 - `narrativeqa`
 - `qasper`
 
-Each subset uses **top 10 test samples**, and the 10 contexts are aggregated into one unified retrieval pool per subset.
+Each subset uses **top 10 test samples**. The 10 contexts are aggregated into one unified retrieval pool per subset.
 
-## Fixed Experiment Settings
+## Fixed Settings (Guide)
 - Chunk size: `512`
 - Chunk overlap: `50`
 - Retrieval top-k: `10`
-- Metrics: `F1-Score` and `ROUGE-L`
+- Metrics: `F1-Score`, `ROUGE-L`
 
-## Unified Model Constraint
-Use one LLM across both groups:
-- `EVAL_LLM_PROVIDER=qwen` with `EVAL_LLM_MODEL=qwen-plus`, or
-- `EVAL_LLM_PROVIDER=gemini` with `EVAL_LLM_MODEL=gemini-1.5-pro`
+## Recommended Project Structure
 
-Embedding model (fixed for both groups):
-- `EVAL_EMBEDDING_BACKEND=st` => `BAAI/bge-m3` (default), or
-- `EVAL_EMBEDDING_BACKEND=openai` => `text-embedding-3-small`
-
-## Run
-
-```bash
-python -m src.run_baseline
-python -m src.run_graphrag
-python -m src.eval_compare
-python -m src.build_report
+```text
+graphrag_eval/
+├── src/                       # experiment code
+├── scripts/
+│   └── run_experiment.sh      # one-command full pipeline
+├── docs/
+│   └── EXPERIMENT_GUIDE.md    # detailed setup/run walkthrough
+├── .env.example               # API key + config template
+├── requirements.txt
+└── outputs/                   # generated at runtime (gitignored)
 ```
 
-Outputs:
+## API Key Setup
+1. Copy env template:
+   ```bash
+   cp .env.example .env
+   ```
+2. Fill keys based on your choices:
+   - If `EVAL_LLM_PROVIDER=qwen`: set `DASHSCOPE_API_KEY`
+   - If `EVAL_LLM_PROVIDER=gemini`: set `GEMINI_API_KEY`
+   - If `EVAL_EMBEDDING_BACKEND=openai`: set `OPENAI_API_KEY`
+
+## Quick Start
+```bash
+python -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+./scripts/run_experiment.sh
+```
+
+## Outputs
 - `outputs/baseline_predictions.jsonl`
 - `outputs/graphrag_predictions.jsonl`
 - `outputs/performance_comparison.csv`
 - `outputs/final_report.md`
+
+See `docs/EXPERIMENT_GUIDE.md` for full step-by-step instructions.
