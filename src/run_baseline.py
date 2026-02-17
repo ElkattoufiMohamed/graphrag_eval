@@ -7,7 +7,11 @@ from typing import Dict, Any
 
 from src.data_loader import load_all_subsets_and_aggregate, SUBSETS
 from src.baseline_rag import make_embedder, build_baseline_index, retrieve_topk, build_prompt_from_chunks
-from src.gemini_llm import GeminiLLM
+from src.llm_provider import build_unified_llm_from_env
+
+
+def _approx_tokens(text: str) -> int:
+    return len(text.split())
 
 
 def ensure_dir(path: str) -> None:
@@ -20,13 +24,17 @@ def main():
     CHUNK_OVERLAP = 50
     TOP_K = 10
 
-    # Embeddings: choose ONE and keep it fixed for baseline + GraphRAG
-    # Option 1 (local): BAAI/bge-m3
-    embedder = make_embedder("st", model_name="BAAI/bge-m3")
+    # Embeddings: choose one of the guide recommendations and keep fixed across groups.
+    embedding_backend = os.getenv("EVAL_EMBEDDING_BACKEND", "st")  # st | openai
+    if embedding_backend == "openai":
+        embedder = make_embedder("openai", model="text-embedding-3-small")
+        embedding_model = "text-embedding-3-small"
+    else:
+        embedder = make_embedder("st", model_name="BAAI/bge-m3")
+        embedding_model = "BAAI/bge-m3"
 
-    # LLM: choose ONE and keep it fixed for baseline + GraphRAG
-    # Use a valid model code from Gemini docs/models page (example below).
-    llm = GeminiLLM(model="gemini-3-flash-preview")
+    # LLM: unified across baseline and GraphRAG.
+    llm = build_unified_llm_from_env()
 
     # Load aggregated corpora (10 docs per subset)
     aggregated = load_all_subsets_and_aggregate(subsets=SUBSETS, k=10, split="test")
@@ -37,8 +45,9 @@ def main():
 
     run_meta: Dict[str, Any] = {
         "timestamp": datetime.utcnow().isoformat(),
+        "llm_provider": llm.provider,
         "llm_model": llm.model,
-        "embedding_model": "BAAI/bge-m3",
+        "embedding_model": embedding_model,
         "chunk_size": CHUNK_SIZE,
         "chunk_overlap": CHUNK_OVERLAP,
         "top_k": TOP_K,
@@ -57,6 +66,7 @@ def main():
                 chunk_size=CHUNK_SIZE,
                 overlap=CHUNK_OVERLAP,
             )
+            index_token_budget = sum(_approx_tokens(ch.text) for ch in index.chunks)
 
             for i, (qid, question, answers) in enumerate(zip(agg.doc_ids, agg.questions, agg.answers_list)):
                 retrieved = retrieve_topk(index, embedder=embedder, query=question, top_k=TOP_K)
@@ -66,6 +76,7 @@ def main():
 
                 record = {
                     "run_meta": run_meta,
+                    "vector_index_tokens_est": index_token_budget,
                     "subset": subset,
                     "sample_id": qid,
                     "sample_idx": i,
