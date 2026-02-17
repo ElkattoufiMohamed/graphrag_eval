@@ -1,16 +1,14 @@
 import os
-import json
 import asyncio
 import random
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional
+from typing import List, Optional
 
 import numpy as np
 from sentence_transformers import SentenceTransformer
 
 from nano_graphrag import GraphRAG, QueryParam
 from nano_graphrag._utils import wrap_embedding_func_with_attrs
-from nano_graphrag._utils import encode_string_by_tiktoken
 
 # -------------------------
 # Chunking (token-based) to match baseline hyperparams: 512 / 50
@@ -70,12 +68,16 @@ class LocalBGEEmbedder:
 # If your Gemini is unstable, you can later swap this to OpenAI or any provider.
 # -------------------------
 _LLM_SEM = asyncio.Semaphore(2)  # start small; raise if stable
+_SYNC_LLM = None
+
+
+def set_llm_for_graphrag(llm) -> None:
+    global _SYNC_LLM
+    _SYNC_LLM = llm
 
 async def llm_complete(prompt: str, system_prompt=None, history_messages=None, **kwargs) -> str:
-    from src.openrouter_llm import OpenRouterLLM
-
-    model_name = os.environ.get("GRAPHRAG_LLM_MODEL", "qwen/qwen-plus")
-    llm = OpenRouterLLM(model=model_name)
+    if _SYNC_LLM is None:
+        raise RuntimeError("GraphRAG LLM is not configured. Call set_llm_for_graphrag() first.")
 
     temperature = float(kwargs.get("temperature", 0.0))
     full_prompt = prompt if system_prompt is None else f"{system_prompt}\n\n{prompt}"
@@ -84,7 +86,7 @@ async def llm_complete(prompt: str, system_prompt=None, history_messages=None, *
         for attempt in range(8):
             try:
                 def _call():
-                    return llm.generate(full_prompt, temperature=temperature, max_tokens=512)
+                    return _SYNC_LLM.generate(full_prompt, temperature=temperature)
 
                 out = await asyncio.to_thread(_call)
                 await asyncio.sleep(0.25 + random.uniform(0.0, 0.25))
