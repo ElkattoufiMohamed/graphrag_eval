@@ -16,6 +16,10 @@ if [[ "${EVAL_LLM_PROVIDER:-qwen}" == "qwen" && -z "${DASHSCOPE_API_KEY:-}" ]]; 
   exit 1
 fi
 
+if [[ "${EVAL_LLM_PROVIDER:-qwen}" == "qwen" && -z "${DASHSCOPE_BASE_HTTP_API_URL:-}" ]]; then
+  echo "[WARN] DASHSCOPE_BASE_HTTP_API_URL not set; defaulting to DashScope intl endpoint inside code"
+fi
+
 if [[ "${EVAL_LLM_PROVIDER:-qwen}" == "gemini" && -z "${GEMINI_API_KEY:-}" ]]; then
   echo "[ERROR] EVAL_LLM_PROVIDER=gemini but GEMINI_API_KEY is not set"
   exit 1

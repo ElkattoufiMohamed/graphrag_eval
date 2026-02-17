@@ -17,6 +17,10 @@ Then edit `.env` and set:
 - `EVAL_LLM_PROVIDER=qwen` and `DASHSCOPE_API_KEY=...`, **or**
 - `EVAL_LLM_PROVIDER=gemini` and `GEMINI_API_KEY=...`
 
+For Qwen, also set the endpoint for your key region:
+- `DASHSCOPE_BASE_HTTP_API_URL=https://dashscope-intl.aliyuncs.com/api/v1` (Singapore)
+- or China/US endpoint if your key was created there.
+
 If you choose OpenAI embeddings:
 - `EVAL_EMBEDDING_BACKEND=openai`
 - `OPENAI_API_KEY=...`
@@ -48,3 +52,4 @@ python -m src.build_report
 - The dataset subsets are: `musique`, `2wikimqa`, `narrativeqa`, `qasper`.
 - Each subset uses top-10 samples aggregated into one unified pool.
 - Fixed parameters: chunk size 512, overlap 50, top-k 10.
+- If DashScope returns `AccessDenied.Unpurchased`, verify model entitlement for `qwen-plus` in Model Studio and region/key endpoint alignment.

@@ -36,8 +36,11 @@ graphrag_eval/
    ```
 2. Fill keys based on your choices:
    - If `EVAL_LLM_PROVIDER=qwen`: set `DASHSCOPE_API_KEY`
-   - If `EVAL_LLM_PROVIDER=gemini`: set `GEMINI_API_KEY`
-   - If `EVAL_EMBEDDING_BACKEND=openai`: set `OPENAI_API_KEY`
+     - Also set `DASHSCOPE_BASE_HTTP_API_URL` to the endpoint matching your key region
+    - If `EVAL_LLM_PROVIDER=gemini`: set `GEMINI_API_KEY`
+    - If `EVAL_EMBEDDING_BACKEND=openai`: set `OPENAI_API_KEY`
+
+If you get `AccessDenied.Unpurchased` on `qwen-plus`, this is usually account entitlement or key-region mismatch (not pipeline logic).
 
 ## Quick Start
 ```bash
