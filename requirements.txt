@@ -9,3 +9,4 @@ dashscope
 google-genai
 openai
 tiktoken
+requests

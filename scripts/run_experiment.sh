@@ -25,6 +25,15 @@ if [[ "${EVAL_LLM_PROVIDER:-qwen}" == "gemini" && -z "${GEMINI_API_KEY:-}" ]]; t
   exit 1
 fi
 
+if [[ "${EVAL_LLM_PROVIDER:-qwen}" == "ollama" ]]; then
+  OLLAMA_BASE_URL="${OLLAMA_BASE_URL:-http://127.0.0.1:11434}"
+  if ! curl -sS "$OLLAMA_BASE_URL/api/tags" >/dev/null 2>&1; then
+    echo "[ERROR] EVAL_LLM_PROVIDER=ollama but Ollama server is not reachable at $OLLAMA_BASE_URL"
+    echo "        Start it first (e.g., 'ollama serve') and confirm the model is pulled."
+    exit 1
+  fi
+fi
+
 if [[ "${EVAL_EMBEDDING_BACKEND:-st}" == "openai" && -z "${OPENAI_API_KEY:-}" ]]; then
   echo "[ERROR] EVAL_EMBEDDING_BACKEND=openai but OPENAI_API_KEY is not set"
   exit 1

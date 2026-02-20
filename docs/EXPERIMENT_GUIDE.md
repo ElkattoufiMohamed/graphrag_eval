@@ -15,7 +15,8 @@ cp .env.example .env
 
 Then edit `.env` and set:
 - `EVAL_LLM_PROVIDER=qwen` and `DASHSCOPE_API_KEY=...`, **or**
-- `EVAL_LLM_PROVIDER=gemini` and `GEMINI_API_KEY=...`
+- `EVAL_LLM_PROVIDER=gemini` and `GEMINI_API_KEY=...`, **or**
+- `EVAL_LLM_PROVIDER=ollama` and `EVAL_LLM_MODEL=qcwind/qwen2.5-7B-instruct-Q4_K_M`
 
 For Qwen, also set the endpoint for your key region:
 - `DASHSCOPE_BASE_HTTP_API_URL=https://dashscope-intl.aliyuncs.com/api/v1` (Singapore)
@@ -27,6 +28,10 @@ If you choose OpenAI embeddings:
 
 Otherwise keep:
 - `EVAL_EMBEDDING_BACKEND=st` (local `BAAI/bge-m3`)
+
+If using Ollama:
+- Start local service: `ollama serve`
+- Verify model: `ollama run qcwind/qwen2.5-7B-instruct-Q4_K_M "Say ok only."`
 
 ## 3) Run the full experiment
 One command:
@@ -53,3 +58,4 @@ python -m src.build_report
 - Each subset uses top-10 samples aggregated into one unified pool.
 - Fixed parameters: chunk size 512, overlap 50, top-k 10.
 - If DashScope returns `AccessDenied.Unpurchased`, verify model entitlement for `qwen-plus` in Model Studio and region/key endpoint alignment.
+- Ollama can be used as a local fallback LLM for both baseline and GraphRAG by setting `EVAL_LLM_PROVIDER=ollama`.

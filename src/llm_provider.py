@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 
 from src.gemini_llm import GeminiLLM
+from src.ollama_llm import OllamaLLM
 from src.qwen_llm import QwenLLM
 
 
@@ -15,8 +16,10 @@ class UnifiedLLM:
             self.impl = GeminiLLM(model=model)
         elif provider_key == "qwen":
             self.impl = QwenLLM(model=model)
+        elif provider_key == "ollama":
+            self.impl = OllamaLLM(model=model)
         else:
-            raise ValueError("provider must be one of: gemini, qwen")
+            raise ValueError("provider must be one of: gemini, qwen, ollama")
 
         self.provider = provider_key
         self.model = model
@@ -38,6 +41,7 @@ def build_unified_llm_from_env() -> UnifiedLLM:
     default_model = {
         "gemini": "gemini-1.5-pro",
         "qwen": "qwen-plus",
+        "ollama": "qcwind/qwen2.5-7B-instruct-Q4_K_M",
     }.get(provider.strip().lower(), "qwen-plus")
 
     model = os.getenv("EVAL_LLM_MODEL", default_model)
