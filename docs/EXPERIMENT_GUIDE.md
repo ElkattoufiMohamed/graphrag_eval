@@ -32,6 +32,12 @@ Otherwise keep:
 If using Ollama:
 - Start local service: `ollama serve`
 - Verify model: `ollama run qcwind/qwen2.5-7B-instruct-Q4_K_M "Say ok only."`
+- Recommended stability envs for GraphRAG on local machines:
+  - `OLLAMA_TIMEOUT_SECONDS=1800`
+  - `OLLAMA_MAX_RETRIES=3`
+  - `OLLAMA_NUM_PREDICT=512`
+  - `OLLAMA_NUM_CTX=8192`
+  - `GRAPHRAG_LLM_CONCURRENCY=1`
 
 ## 3) Run the full experiment
 One command:

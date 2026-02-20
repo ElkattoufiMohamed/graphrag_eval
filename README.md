@@ -48,8 +48,15 @@ If you get `AccessDenied.Unpurchased` on `qwen-plus`, this is usually account en
 export EVAL_LLM_PROVIDER=ollama
 export EVAL_LLM_MODEL=qcwind/qwen2.5-7B-instruct-Q4_K_M
 export OLLAMA_BASE_URL=http://127.0.0.1:11434
+export OLLAMA_TIMEOUT_SECONDS=1800
+export OLLAMA_MAX_RETRIES=3
+export OLLAMA_NUM_PREDICT=512
+export OLLAMA_NUM_CTX=8192
+export GRAPHRAG_LLM_CONCURRENCY=1
 ./scripts/run_experiment.sh
 ```
+
+If GraphRAG times out during entity extraction on local hardware, increase `OLLAMA_TIMEOUT_SECONDS` (e.g. 2400) and keep concurrency at `1`.
 
 ## Quick Start
 ```bash

@@ -67,7 +67,7 @@ class LocalBGEEmbedder:
 # nano-graphrag will call best_model_func / cheap_model_func many times during indexing.
 # If your Gemini is unstable, you can later swap this to OpenAI or any provider.
 # -------------------------
-_LLM_SEM = asyncio.Semaphore(2)  # start small; raise if stable
+_LLM_SEM = asyncio.Semaphore(int(os.getenv("GRAPHRAG_LLM_CONCURRENCY", "1")))
 _SYNC_LLM = None
 _GRAPH_LLM_USAGE = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
 
@@ -108,7 +108,13 @@ async def llm_complete(prompt: str, system_prompt=None, history_messages=None, *
                 return out
             except Exception as e:
                 msg = str(e)
-                if ("429" in msg) or ("Too Many" in msg) or ("503" in msg) or ("temporarily" in msg.lower()):
+                if (
+                    ("429" in msg)
+                    or ("Too Many" in msg)
+                    or ("503" in msg)
+                    or ("temporarily" in msg.lower())
+                    or ("timeout" in msg.lower())
+                ):
                     wait = min(60, (2 ** attempt)) + random.uniform(0.0, 1.0)
                     await asyncio.sleep(wait)
                     continue
