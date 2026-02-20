@@ -40,10 +40,14 @@ class OpenAIEmbedder(Embedder):
         from openai import OpenAI
         self.model = model
         self.client = OpenAI(api_key=api_key or os.getenv("OPENAI_API_KEY"))
+        self.usage_tokens = 0
 
     def embed_texts(self, texts: List[str]) -> np.ndarray:
         # OpenAI embeddings API supports batching
         resp = self.client.embeddings.create(model=self.model, input=texts)
+        usage = getattr(resp, "usage", None)
+        if usage is not None:
+            self.usage_tokens += int(getattr(usage, "total_tokens", 0) or 0)
         embs = [d.embedding for d in resp.data]
         return np.asarray(embs, dtype=np.float32)
 

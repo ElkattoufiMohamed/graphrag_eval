@@ -1,55 +1,13 @@
-# Python
+# Local secrets
+.env
+
+# Python cache
 __pycache__/
 *.pyc
-*.pyo
-*.pyd
 
-# environments
-venv/
-.env
-.graphrag_eval/
-.conda/
-
-# data
-data/
-datasets/
-*.csv
-*.tsv
-*.jsonl
-*.pt
-*.pth
-*.ckpt
-*.bin
-
-# logs
-logs/
-wandb/
-runs/
-
-# system
-.DS_Store
-
-# IDE
-.vscode/
-.idea/
-
-
-# Large artifacts / caches
+# Experiment outputs and caches
 outputs/
-**/nano_graphrag_cache/
-.cache/
-__pycache__/
-*.pt
-*.bin
-*.safetensors
-*.ckpt
-*.tar
-*.tar.gz
-*.zip
 
-# Datasets / logs
-*.jsonl
-*.log
-
-# Env
-.env
+# Virtual envs
+.venv/
+venv/

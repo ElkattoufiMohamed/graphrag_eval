@@ -5,11 +5,8 @@ from typing import Any, Dict, List, Optional
 from datasets import load_dataset
 
 
-# LongBench configs/subsets (HF config names)
-# NOTE: In your run, "musique" worked. The others should be:
-# - "wikimqa"
-# - "narrativeqa"
-# - "qasper"
+# LongBench configs/subsets used in the evaluation guide.
+# LongBench exposes WikiMQA under the HF config name "2wikimqa".
 SUBSETS = ["musique", "2wikimqa", "narrativeqa", "qasper"]
 
 
