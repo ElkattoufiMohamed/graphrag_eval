@@ -53,10 +53,12 @@ export OLLAMA_MAX_RETRIES=3
 export OLLAMA_NUM_PREDICT=512
 export OLLAMA_NUM_CTX=8192
 export GRAPHRAG_LLM_CONCURRENCY=1
+export GRAPHRAG_JSON_REPAIR=1
 ./scripts/run_experiment.sh
 ```
 
 If GraphRAG times out during entity extraction on local hardware, increase `OLLAMA_TIMEOUT_SECONDS` (e.g. 2400) and keep concurrency at `1`.
+If GraphRAG fails on JSON parsing during community report generation, keep `GRAPHRAG_JSON_REPAIR=1` to auto-repair malformed local-model JSON.
 
 ## Quick Start
 ```bash

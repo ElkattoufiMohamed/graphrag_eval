@@ -1,6 +1,8 @@
 import os
 import asyncio
 import random
+import json
+import re
 from dataclasses import dataclass
 from typing import List, Optional
 
@@ -72,6 +74,60 @@ _SYNC_LLM = None
 _GRAPH_LLM_USAGE = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
 
 
+def _looks_like_json_task(prompt: str) -> bool:
+    p = prompt.lower()
+    return ("json" in p) and (
+        ("output" in p)
+        or ("return" in p)
+        or ("format" in p)
+        or ("response_format" in p)
+    )
+
+
+def _extract_json_candidate(text: str) -> str:
+    t = (text or "").strip()
+    # strip markdown fences
+    if t.startswith("```"):
+        t = re.sub(r"^```(?:json)?\s*", "", t, flags=re.IGNORECASE)
+        t = re.sub(r"\s*```$", "", t)
+    # keep only the largest object span if extra prose exists
+    left = t.find("{")
+    right = t.rfind("}")
+    if left != -1 and right != -1 and right > left:
+        t = t[left : right + 1]
+    return t
+
+
+def _simple_json_repair(text: str) -> str:
+    t = _extract_json_candidate(text)
+    # remove trailing commas before object/array closure
+    t = re.sub(r",\s*([}\]])", r"\1", t)
+    # close unbalanced braces/brackets if model truncated end
+    open_obj = t.count("{") - t.count("}")
+    open_arr = t.count("[") - t.count("]")
+    if open_arr > 0:
+        t += "]" * open_arr
+    if open_obj > 0:
+        t += "}" * open_obj
+    return t
+
+
+def _ensure_valid_json_or_raise(raw: str) -> str:
+    c1 = _extract_json_candidate(raw)
+    json.loads(c1)
+    return c1
+
+
+def _repair_with_llm(raw: str) -> str:
+    repair_prompt = (
+        "You will receive malformed JSON. Return ONLY valid JSON with the same fields and values. "
+        "Do not add explanations, markdown, or extra text.\n\n"
+        f"MALFORMED_JSON:\n{raw}"
+    )
+    repaired = _SYNC_LLM.generate(repair_prompt, temperature=0.0)
+    return _simple_json_repair(repaired)
+
+
 def set_llm_for_graphrag(llm) -> None:
     global _SYNC_LLM
     _SYNC_LLM = llm
@@ -100,6 +156,13 @@ async def llm_complete(prompt: str, system_prompt=None, history_messages=None, *
                     return _SYNC_LLM.generate(full_prompt, temperature=temperature)
 
                 out = await asyncio.to_thread(_call)
+                if _looks_like_json_task(full_prompt) and os.getenv("GRAPHRAG_JSON_REPAIR", "1") == "1":
+                    try:
+                        out = _ensure_valid_json_or_raise(out)
+                    except Exception:
+                        # one local repair attempt for small local models
+                        out = _repair_with_llm(out)
+                        out = _ensure_valid_json_or_raise(out)
                 usage = getattr(_SYNC_LLM, "last_usage", {})
                 _GRAPH_LLM_USAGE["prompt_tokens"] += int(usage.get("prompt_tokens", 0) or 0)
                 _GRAPH_LLM_USAGE["completion_tokens"] += int(usage.get("completion_tokens", 0) or 0)

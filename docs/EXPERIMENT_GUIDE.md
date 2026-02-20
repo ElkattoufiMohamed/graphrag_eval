@@ -38,6 +38,7 @@ If using Ollama:
   - `OLLAMA_NUM_PREDICT=512`
   - `OLLAMA_NUM_CTX=8192`
   - `GRAPHRAG_LLM_CONCURRENCY=1`
+  - `GRAPHRAG_JSON_REPAIR=1`
 
 ## 3) Run the full experiment
 One command:
