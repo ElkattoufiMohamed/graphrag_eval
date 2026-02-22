@@ -98,6 +98,32 @@ def _extract_json_candidate(text: str) -> str:
     return t
 
 
+def _extract_first_json_value(text: str) -> str:
+    """Extract first decodable JSON value from noisy text."""
+    t = (text or "").strip()
+    if not t:
+        raise ValueError("empty response")
+
+    # try direct decode first
+    decoder = json.JSONDecoder()
+    try:
+        obj, end = decoder.raw_decode(t)
+        return json.dumps(obj, ensure_ascii=False)
+    except Exception:
+        pass
+
+    # find first object/array start and decode from there
+    starts = [i for i, ch in enumerate(t) if ch in "[{"]
+    for s in starts:
+        try:
+            obj, end = decoder.raw_decode(t[s:])
+            return json.dumps(obj, ensure_ascii=False)
+        except Exception:
+            continue
+
+    raise ValueError("no decodable JSON value found")
+
+
 def _simple_json_repair(text: str) -> str:
     t = _extract_json_candidate(text)
     # remove trailing commas before object/array closure
@@ -114,8 +140,14 @@ def _simple_json_repair(text: str) -> str:
 
 def _ensure_valid_json_or_raise(raw: str) -> str:
     c1 = _extract_json_candidate(raw)
-    json.loads(c1)
-    return c1
+    if c1:
+        try:
+            obj = json.loads(c1)
+            return json.dumps(obj, ensure_ascii=False)
+        except Exception:
+            pass
+
+    return _extract_first_json_value(raw)
 
 
 def _repair_with_llm(raw: str) -> str:
@@ -160,9 +192,14 @@ async def llm_complete(prompt: str, system_prompt=None, history_messages=None, *
                     try:
                         out = _ensure_valid_json_or_raise(out)
                     except Exception:
-                        # one local repair attempt for small local models
-                        out = _repair_with_llm(out)
-                        out = _ensure_valid_json_or_raise(out)
+                        # local models may return empty / concatenated / fenced JSON.
+                        repaired = _repair_with_llm(out)
+                        try:
+                            out = _ensure_valid_json_or_raise(repaired)
+                        except Exception:
+                            # second-pass repair with stronger instruction
+                            repaired2 = _repair_with_llm(repaired)
+                            out = _ensure_valid_json_or_raise(repaired2)
                 usage = getattr(_SYNC_LLM, "last_usage", {})
                 _GRAPH_LLM_USAGE["prompt_tokens"] += int(usage.get("prompt_tokens", 0) or 0)
                 _GRAPH_LLM_USAGE["completion_tokens"] += int(usage.get("completion_tokens", 0) or 0)
