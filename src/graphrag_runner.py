@@ -1,16 +1,16 @@
 import os
-import json
 import asyncio
 import random
+import json
+import re
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional
+from typing import List, Optional
 
 import numpy as np
 from sentence_transformers import SentenceTransformer
 
 from nano_graphrag import GraphRAG, QueryParam
 from nano_graphrag._utils import wrap_embedding_func_with_attrs
-from nano_graphrag._utils import encode_string_by_tiktoken
 
 # -------------------------
 # Chunking (token-based) to match baseline hyperparams: 512 / 50
@@ -69,13 +69,114 @@ class LocalBGEEmbedder:
 # nano-graphrag will call best_model_func / cheap_model_func many times during indexing.
 # If your Gemini is unstable, you can later swap this to OpenAI or any provider.
 # -------------------------
-_LLM_SEM = asyncio.Semaphore(2)  # start small; raise if stable
+_LLM_SEM = asyncio.Semaphore(int(os.getenv("GRAPHRAG_LLM_CONCURRENCY", "1")))
+_SYNC_LLM = None
+_GRAPH_LLM_USAGE = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
+
+
+def _looks_like_json_task(prompt: str) -> bool:
+    p = prompt.lower()
+    return ("json" in p) and (
+        ("output" in p)
+        or ("return" in p)
+        or ("format" in p)
+        or ("response_format" in p)
+    )
+
+
+def _extract_json_candidate(text: str) -> str:
+    t = (text or "").strip()
+    # strip markdown fences
+    if t.startswith("```"):
+        t = re.sub(r"^```(?:json)?\s*", "", t, flags=re.IGNORECASE)
+        t = re.sub(r"\s*```$", "", t)
+    # keep only the largest object span if extra prose exists
+    left = t.find("{")
+    right = t.rfind("}")
+    if left != -1 and right != -1 and right > left:
+        t = t[left : right + 1]
+    return t
+
+
+def _extract_first_json_value(text: str) -> str:
+    """Extract first decodable JSON value from noisy text."""
+    t = (text or "").strip()
+    if not t:
+        raise ValueError("empty response")
+
+    # try direct decode first
+    decoder = json.JSONDecoder()
+    try:
+        obj, end = decoder.raw_decode(t)
+        return json.dumps(obj, ensure_ascii=False)
+    except Exception:
+        pass
+
+    # find first object/array start and decode from there
+    starts = [i for i, ch in enumerate(t) if ch in "[{"]
+    for s in starts:
+        try:
+            obj, end = decoder.raw_decode(t[s:])
+            return json.dumps(obj, ensure_ascii=False)
+        except Exception:
+            continue
+
+    raise ValueError("no decodable JSON value found")
+
+
+def _simple_json_repair(text: str) -> str:
+    t = _extract_json_candidate(text)
+    # remove trailing commas before object/array closure
+    t = re.sub(r",\s*([}\]])", r"\1", t)
+    # close unbalanced braces/brackets if model truncated end
+    open_obj = t.count("{") - t.count("}")
+    open_arr = t.count("[") - t.count("]")
+    if open_arr > 0:
+        t += "]" * open_arr
+    if open_obj > 0:
+        t += "}" * open_obj
+    return t
+
+
+def _ensure_valid_json_or_raise(raw: str) -> str:
+    c1 = _extract_json_candidate(raw)
+    if c1:
+        try:
+            obj = json.loads(c1)
+            return json.dumps(obj, ensure_ascii=False)
+        except Exception:
+            pass
+
+    return _extract_first_json_value(raw)
+
+
+def _repair_with_llm(raw: str) -> str:
+    repair_prompt = (
+        "You will receive malformed JSON. Return ONLY valid JSON with the same fields and values. "
+        "Do not add explanations, markdown, or extra text.\n\n"
+        f"MALFORMED_JSON:\n{raw}"
+    )
+    repaired = _SYNC_LLM.generate(repair_prompt, temperature=0.0)
+    return _simple_json_repair(repaired)
+
+
+def set_llm_for_graphrag(llm) -> None:
+    global _SYNC_LLM
+    _SYNC_LLM = llm
+
+
+def reset_graphrag_llm_usage() -> None:
+    _GRAPH_LLM_USAGE["prompt_tokens"] = 0
+    _GRAPH_LLM_USAGE["completion_tokens"] = 0
+    _GRAPH_LLM_USAGE["total_tokens"] = 0
+
+
+def get_graphrag_llm_usage() -> dict:
+    return dict(_GRAPH_LLM_USAGE)
 
 async def llm_complete(prompt: str, system_prompt=None, history_messages=None, **kwargs) -> str:
-    from src.openrouter_llm import OpenRouterLLM
-
-    model_name = os.environ.get("GRAPHRAG_LLM_MODEL", "qwen/qwen-plus")
-    llm = OpenRouterLLM(model=model_name)
+    if _SYNC_LLM is None:
+        raise RuntimeError("GraphRAG LLM is not configured. Call set_llm_for_graphrag() first.")
 
     temperature = float(kwargs.get("temperature", 0.0))
     full_prompt = prompt if system_prompt is None else f"{system_prompt}\n\n{prompt}"
@@ -84,14 +185,36 @@ async def llm_complete(prompt: str, system_prompt=None, history_messages=None, *
         for attempt in range(8):
             try:
                 def _call():
-                    return llm.generate(full_prompt, temperature=temperature, max_tokens=512)
+                    return _SYNC_LLM.generate(full_prompt, temperature=temperature)
 
                 out = await asyncio.to_thread(_call)
+                if _looks_like_json_task(full_prompt) and os.getenv("GRAPHRAG_JSON_REPAIR", "1") == "1":
+                    try:
+                        out = _ensure_valid_json_or_raise(out)
+                    except Exception:
+                        # local models may return empty / concatenated / fenced JSON.
+                        repaired = _repair_with_llm(out)
+                        try:
+                            out = _ensure_valid_json_or_raise(repaired)
+                        except Exception:
+                            # second-pass repair with stronger instruction
+                            repaired2 = _repair_with_llm(repaired)
+                            out = _ensure_valid_json_or_raise(repaired2)
+                usage = getattr(_SYNC_LLM, "last_usage", {})
+                _GRAPH_LLM_USAGE["prompt_tokens"] += int(usage.get("prompt_tokens", 0) or 0)
+                _GRAPH_LLM_USAGE["completion_tokens"] += int(usage.get("completion_tokens", 0) or 0)
+                _GRAPH_LLM_USAGE["total_tokens"] += int(usage.get("total_tokens", 0) or 0)
                 await asyncio.sleep(0.25 + random.uniform(0.0, 0.25))
                 return out
             except Exception as e:
                 msg = str(e)
-                if ("429" in msg) or ("Too Many" in msg) or ("503" in msg) or ("temporarily" in msg.lower()):
+                if (
+                    ("429" in msg)
+                    or ("Too Many" in msg)
+                    or ("503" in msg)
+                    or ("temporarily" in msg.lower())
+                    or ("timeout" in msg.lower())
+                ):
                     wait = min(60, (2 ** attempt)) + random.uniform(0.0, 1.0)
                     await asyncio.sleep(wait)
                     continue
@@ -101,15 +224,33 @@ async def llm_complete(prompt: str, system_prompt=None, history_messages=None, *
 def build_graphrag(
     working_dir: str,
     embed_device: str = "cpu",
+    embedding_backend: str = "st",
+    embedding_model: str = "BAAI/bge-m3",
 ) -> GraphRAG:
-    embedder = LocalBGEEmbedder(device=embed_device, cache_dir=working_dir)
+    if embedding_backend == "openai":
+        from openai import OpenAI
 
-    @wrap_embedding_func_with_attrs(
-        embedding_dim=embedder.dim,
-        max_token_size=embedder.max_len,
-    )
-    async def local_embedding(texts: List[str]) -> np.ndarray:
-        return await asyncio.to_thread(embedder.encode, texts)
+        client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+
+        @wrap_embedding_func_with_attrs(
+            embedding_dim=1536,
+            max_token_size=8192,
+        )
+        async def local_embedding(texts: List[str]) -> np.ndarray:
+            def _embed() -> np.ndarray:
+                resp = client.embeddings.create(model=embedding_model, input=texts)
+                return np.asarray([d.embedding for d in resp.data], dtype=np.float32)
+
+            return await asyncio.to_thread(_embed)
+    else:
+        embedder = LocalBGEEmbedder(model_name=embedding_model, device=embed_device, cache_dir=working_dir)
+
+        @wrap_embedding_func_with_attrs(
+            embedding_dim=embedder.dim,
+            max_token_size=embedder.max_len,
+        )
+        async def local_embedding(texts: List[str]) -> np.ndarray:
+            return await asyncio.to_thread(embedder.encode, texts)
 
     rag = GraphRAG(
         working_dir=working_dir,
